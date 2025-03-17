@@ -1,1 +1,3 @@
-console.log("Hello via Bun!");
+/**
+ * Wrapper for sql like databases
+ */
