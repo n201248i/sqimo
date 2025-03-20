@@ -6,13 +6,16 @@ import type { TypeCheck } from '@sinclair/typebox/compiler'
 import { Database } from 'bun:sqlite'
 import { Type, type Static } from '@sinclair/typebox'
 import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { ENV } from '@/constants'
 
 const log = console.log
 const env = process.env
 
 log('SQIMO')
-const environment = env.NODE_ENV || 'development'
-log(environment)
+const environment = ENV
+log('NODE_ENV', environment)
+mkdirSync(join(process.cwd(), `.${environment}`), { recursive: true })
 
 const getTypeOfKey = (value: string) => {
 	if (typeof value === 'string') {

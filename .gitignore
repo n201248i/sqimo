@@ -1,5 +1,7 @@
 # sqimo
 .data
+.development
+.test
 
 # dependencies (bun install)
 node_modules
