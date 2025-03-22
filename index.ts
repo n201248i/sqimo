@@ -10,15 +10,13 @@ import { mkdirSync } from 'node:fs'
 import { ENV } from '@/constants'
 import type { info } from 'node:console'
 import { Bungalow } from '@/lib'
-
+import { SqimoUtils } from '@/lib'
 const log = console.log
-const env = process.env
 
 const b = new Bungalow('Sqimo')
 b.log('SQIMO')
 
 const environment = ENV
-log('NODE_ENV', environment)
 mkdirSync(join(process.cwd(), `.${environment}`), { recursive: true })
 
 const escapeValues = (doc: any = {}) => {
@@ -37,8 +35,14 @@ export class SqimoDb {
 		this.database = new Database(connection_string)
 	}
 
+	async generateId() {
+		const id = `${Math.random().toString(36).slice(2)}_${ENV[0]}`
+
+		return id
+	}
+
 	async connect() {
-		log('🟡 [index:connect] This will be used when drivers will be implemented and connection will be async')
+		b.log('index:connect This will be used when drivers will be implemented and connection will be async')
 	}
 
 	async collectionExists(name: string) {
@@ -266,20 +270,6 @@ export class SqimoField {
 }
 
 export class SqimoDoc {}
-
-export class SqimoUtils {
-	static getFieldType(value: any) {
-		if (value + '' === value) {
-			return 'TEXT'
-		}
-
-		if(Number.isInteger(value)) {
-			return 'INTEGER'
-		}
-
-		return 'REAL'
-	}
-}
 
 const db = new SqimoDb()
 await db.connect()

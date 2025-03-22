@@ -46,6 +46,18 @@ export class SqimoUtils {
 
 		return `${Math.random().toString(36).slice(2)}_${env_type}`
 	}
+
+	static getFieldType(value: any) {
+		if (value + '' === value) {
+			return 'TEXT'
+		}
+
+		if(Number.isInteger(value)) {
+			return 'INTEGER'
+		}
+
+		return 'REAL'
+	}
 }
 
 // console.log(SqimoUtils.id())
