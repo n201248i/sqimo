@@ -1,6 +1,22 @@
 import fs from 'node:fs'
 import { Type } from '@sinclair/typebox'
 
+export class Bungalow {
+	name: string
+
+	constructor(name: string) {
+		this.name = name
+	}
+
+	log(...args: any[]) {
+		console.log(`👹 ${this.name}:`, ...args)
+	}
+
+	info(...args: any[]) {
+		console.info(`🔵 ${this.name}`, ...args)
+	}
+}
+
 export class SqimoUtils {
 	static makeDirSync(path: string) {
 		if (path.includes(process.cwd())) {

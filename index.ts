@@ -8,27 +8,23 @@ import { Type, type Static } from '@sinclair/typebox'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { ENV } from '@/constants'
+import type { info } from 'node:console'
+import { Bungalow } from '@/lib'
 
 const log = console.log
 const env = process.env
 
-log('SQIMO')
+const b = new Bungalow('Sqimo')
+b.log('SQIMO')
+
 const environment = ENV
 log('NODE_ENV', environment)
 mkdirSync(join(process.cwd(), `.${environment}`), { recursive: true })
 
-const getTypeOfKey = (value: string) => {
-	if (typeof value === 'string') {
-		return 'TEXT'
-	}
+const escapeValues = (doc: any = {}) => {
+	const escaped = Object.values(doc).map((value: any) => typeof value === 'string' ? `"${value}"` : value).join(', ')
 
-	if (Number.isInteger(value)) {
-		return 'INTEGER'
-	}
-
-	if (typeof value === 'number') {
-		return 'REAL'
-	}
+	return escaped
 }
 
 export class SqimoDb {
@@ -39,7 +35,6 @@ export class SqimoDb {
 	constructor(connection_string: string = ':memory:') {
 		this.connection_string = connection_string
 		this.database = new Database(connection_string)
-		log(process.cwd())
 	}
 
 	async connect() {
@@ -107,25 +102,45 @@ export class SqimoDb {
 export class SqimoCollection {
 	name: string
 	fields?: any
+	is_initialized: boolean | Promise<boolean> = false
 	private _db: SqimoDb
-
-	constructor(db: any, name: string, fields: any[] = []) {
+	constructor(db: SqimoDb, name: string, fields: any[] = []) {
 		this.name = name
 		this.fields = fields
 		this._db = db
+		this.init(name)
+	}
+
+	async init(name: string) {
 		// check if table exists
 		const sql = `SELECT name FROM sqlite_master WHERE type='table' AND name='${name}'`
 		const result = this._db?.database.query(sql).get()
 
 		if (!result) {
-			this._db?.createCollection(name)
+			await this._db?.createCollection(name)
 		}
+
+		this.is_initialized = true
 	}
 
-	async getFields(collection: string) {
-		const fields = await this._db.$(`PRAGMA table_info(${collection})`)
+	async getFields() {
+		await this.is_initialized
 
-		return fields.map((field: any) => field.type)
+		const fields = await this._db.$(`PRAGMA table_info(${this.name})`)
+
+		const sqimoFieldsls = fields.map((field: any) => {
+			const _field = new SqimoField(
+				this,
+				field.name,
+				{
+					type: field.type,
+				}
+			)
+
+			return _field
+		})
+
+		return sqimoFieldsls
 	}
 
 	async createField(name: string, options: any = {}, value?: any) {
@@ -168,8 +183,7 @@ export class SqimoCollection {
 		return result
 	}
 
-	async find(query: object = {}) {
-		// Find documents matching query
+	async find(query: any = {}) {
 		const sql = `SELECT * FROM ${this.name}`
 		const result = await this._db.$(sql)
 
@@ -180,12 +194,25 @@ export class SqimoCollection {
 		// Find single document
 	}
 
-	async insertOne(doc: any) {
-		for (const key in doc) {
-			if (!await this.fieldExists(key)) {
-				await this.createField(key, { type: getTypeOfKey(doc[key]) })
+	async insertOne(doc: any = {}) {
+		for (const field_name in doc) {
+			if (!await this.fieldExists(field_name)) {
+				const field = await this.createField(
+					field_name,
+					{ type: SqimoUtils.getFieldType(doc[field_name]) }
+				)
 			}
 		}
+		const sql_object = [
+			`INSERT INTO ${this.name} (`,
+			Object.keys(doc).join(', '),
+			') VALUES (',
+			escapeValues(doc),
+			')'
+		]
+		const sql_string = sql_object.join('')
+		// console.log(sql_string
+		const result = await this._db.$(sql_string)
 	}
 
 	async insertMany(docs: object[]) {
@@ -219,31 +246,60 @@ export class SqimoField {
 	default: any
 	is_optional: boolean
 	is_unique: boolean
+	is_primary: boolean
+	is_index: boolean
 
-	constructor(name: string, options: any = {}) {
+	constructor(collection: SqimoCollection,  name: string, options: any = {}) {
 		this.name = name
 		this.type = options.type || 'TEXT'
 		this.default = options.default || null
 		this.is_optional = options.is_optional || false
 		this.is_unique = options.is_unique || false
+		this.is_primary = options.is_primary || false
+		this.is_index = options.is_index || false
+	}
+
+	async create() {
+		// Create field
+
 	}
 }
 
 export class SqimoDoc {}
 
+export class SqimoUtils {
+	static getFieldType(value: any) {
+		if (value + '' === value) {
+			return 'TEXT'
+		}
+
+		if(Number.isInteger(value)) {
+			return 'INTEGER'
+		}
+
+		return 'REAL'
+	}
+}
+
 const db = new SqimoDb()
 await db.connect()
-// log('createCollection')
-// const collection = await db.createCollection('users')
-// log(collection.name)
-// log('getCollection')
-const usersCollection = await db.getCollection('users')
-// log('collectionExists users', await db.collectionExists('users'))
-// log('getCollection users52', await db.getCollection('users52'))
-// log('collectionExists users52', await db.collectionExists('users52'))
-//log(collection2.name)
-// db.createCollection('users', Type.Object({}))
-usersCollection.insertOne({ name: 'John Doe', age: 25, id: 3455.328 })
-const users = await usersCollection.find()
 
+const usersCollection = await db.getCollection('users')
+const posts = await db.getCollection('posts')
+const user =  {
+	name: 'John Doe',
+	age: 25,
+	uid: 3455.328
+}
+
+const userDoc = await usersCollection.insertOne(user)
+const users = await usersCollection.find()
 log(users)
+
+log('name', SqimoUtils.getFieldType(user.name))
+log('age', SqimoUtils.getFieldType(user.age))
+log('uid', SqimoUtils.getFieldType(user.uid))
+
+// log(await usersCollection.getFields())
+// log((await db.listCollections()).map((collection) => collection.name))
+// log(await usersCollection.getFields())
