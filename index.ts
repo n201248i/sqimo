@@ -2,22 +2,24 @@
  * Wrapper for sql like databases
  */
 
-import type { TypeCheck } from '@sinclair/typebox/compiler'
 import { Database } from 'bun:sqlite'
-import { Type, type Static } from '@sinclair/typebox'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { ENV } from '@/constants'
-import type { info } from 'node:console'
 import { Bungalow } from '@/lib'
 import { SqimoUtils } from '@/lib'
+import { mongoToSql } from '@/src/mongo_to_sql'
 const log = console.log
 
-const b = new Bungalow('Sqimo')
-b.log('SQIMO')
-
 const environment = ENV
-mkdirSync(join(process.cwd(), `.${environment}`), { recursive: true })
+
+const a = "asda"
+
+mkdirSync(
+	join(process.cwd(), 
+		`.data/.${environment}`), 
+	{ recursive: true }
+)
 
 const escapeValues = (doc: any = {}) => {
 	const escaped = Object.values(doc).map((value: any) => typeof value === 'string' ? `"${value}"` : value).join(', ')
@@ -29,20 +31,22 @@ export class SqimoDb {
 	connection_string: string
 	collections: any[] = []
 	database: Database
+	is_initialized: boolean | Promise<boolean> = false
 
 	constructor(connection_string: string = ':memory:') {
 		this.connection_string = connection_string
 		this.database = new Database(connection_string)
 	}
 
+	async init() {
+		this.is_initialized = true
+	}
+
 	async generateId() {
+		await this.is_initialized
 		const id = `${Math.random().toString(36).slice(2)}_${ENV[0]}`
 
 		return id
-	}
-
-	async connect() {
-		b.log('index:connect This will be used when drivers will be implemented and connection will be async')
 	}
 
 	async collectionExists(name: string) {
@@ -57,7 +61,13 @@ export class SqimoDb {
 	 * @param query - query string
 	 */
 	async $(query: any) {
-		return this.database.query(query).all()
+		try {
+			return this.database.query(query).all()
+		} catch (error) {
+			console.error('SQL error:', query)
+
+			return error
+		}
 	}
 
 	async listCollections() {
@@ -67,6 +77,7 @@ export class SqimoDb {
 
 		for (const collection_table of collection_names) {
 			const collection = new SqimoCollection(this, collection_table.name)
+
 			collections.push(collection)
 		}
 
@@ -75,6 +86,8 @@ export class SqimoDb {
 
 	// async getCollectionByName(name: string)
 	async getCollection(name: string) {
+		await this.is_initialized
+
 		if (!await this.collectionExists(name)) {
 			await this.createCollection(name)
 		}
@@ -87,7 +100,10 @@ export class SqimoDb {
      * @fields - object with fields ar typebox object
      */
 	async createCollection(name: string, fields: any = {}) {
+		await this.is_initialized
+
 		const query = `CREATE TABLE IF NOT EXISTS ${name} (_id TEXT PRIMARY KEY)`
+
 		await this.database.exec(query)
 		const collection = new SqimoCollection(this, name)
 
@@ -95,19 +111,25 @@ export class SqimoDb {
 	}
 
 	async dropCollection(name: string) {
-		// Drop collection
+		await this.is_initialized
+		const query = `DROP TABLE IF EXISTS ${name}`
+
+		await this.database.exec(query)
 	}
 
 	async close() {
 		// Close connection
+		await this.is_initialized
+		this.database.close()
 	}
 }
 
 export class SqimoCollection {
 	name: string
-	fields?: any
+	fields?: any[]
 	is_initialized: boolean | Promise<boolean> = false
 	private _db: SqimoDb
+
 	constructor(db: SqimoDb, name: string, fields: any[] = []) {
 		this.name = name
 		this.fields = fields
@@ -130,7 +152,7 @@ export class SqimoCollection {
 	async getFields() {
 		await this.is_initialized
 
-		const fields = await this._db.$(`PRAGMA table_info(${this.name})`)
+		const fields: any = await this._db.$(`PRAGMA table_info(${this.name})`)
 
 		const sqimoFieldsls = fields.map((field: any) => {
 			const _field = new SqimoField(
@@ -179,22 +201,73 @@ export class SqimoCollection {
 	}
 
 	async fieldExists(name: string) {
+		await this.is_initialized
 		const sql = `PRAGMA table_info(${this.name})`
-		const fields = await this._db.$(sql)
+		const fields: any = await this._db.$(sql)
 		const field = fields.find((field: any) => field.name === name)
 		const result = field ? true : false
 
 		return result
 	}
 
-	async find(query: any = {}) {
-		const sql = `SELECT * FROM ${this.name}`
+	async ensureIndex(fields: string[], options: any = {}) {
+		await this.is_initialized
+
+		// Set default options
+		options.unique ??= false
+
+		// Create index name from fields
+		const index_name = `idx_${this.name}_${fields.join('_')}`
+
+		// Build the CREATE INDEX statement
+		const sql = `
+			CREATE ${options.unique ? 'UNIQUE' : ''} INDEX IF NOT EXISTS ${index_name} 
+					ON ${this.name} (${fields.join(', ')})
+			`
+
+		// Execute the index creation
+		await this._db.database.exec(sql)
+
+		return index_name
+	}
+
+	async showIndexes() {
+		await this.is_initialized
+		const sql = `PRAGMA index_list(${this.name})`
+		const indexes = await this._db.$(sql)
+
+		return indexes
+	}
+
+	async find(query: any = {}, options: any = {}) {
+		await this.is_initialized
+
+		// Limit is to 100 by default. To force developers implent pagination
+		options.limit ??= 100
+		options.skip ??= 0
+		options.sort ??= { _id: 1 }
+
+		// Build the SQL query
+		let sql = `SELECT * FROM ${this.name} ${mongoToSql(query)}`
+
+		// Add ORDER BY clause
+		const orderBy = Object.entries(options.sort)
+			.map(([field, direction]) => `${field} ${(direction as number) === 1 ? 'ASC' : 'DESC'}`)
+			.join(', ')
+
+		if (orderBy) {
+			sql += ` ORDER BY ${orderBy}`
+		}
+
+		// Add LIMIT and OFFSET
+		sql += ` LIMIT ${options.limit} OFFSET ${options.skip}`
+
 		const result = await this._db.$(sql)
 
 		return result
 	}
 
-	async findOne(query: object = {}) {
+	async findOne(query: any = {}) {
 		// Find single document
 	}
 
@@ -269,13 +342,9 @@ export class SqimoField {
 	}
 }
 
-export class SqimoDoc {}
-
 const db = new SqimoDb()
-await db.connect()
 
 const usersCollection = await db.getCollection('users')
-const posts = await db.getCollection('posts')
 const user =  {
 	name: 'John Doe',
 	age: 25,
@@ -283,12 +352,12 @@ const user =  {
 }
 
 const userDoc = await usersCollection.insertOne(user)
-const users = await usersCollection.find()
-log(users)
+const users = await usersCollection.find({age: { $gt: 20 }})
 
-log('name', SqimoUtils.getFieldType(user.name))
-log('age', SqimoUtils.getFieldType(user.age))
-log('uid', SqimoUtils.getFieldType(user.uid))
+usersCollection.ensureIndex(['name', 'age'], { unique: true })
+log(await usersCollection.showIndexes())
+
+log(users)
 
 // log(await usersCollection.getFields())
 // log((await db.listCollections()).map((collection) => collection.name))

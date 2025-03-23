@@ -1,5 +1,3 @@
-import { $ } from 'bun'
-
 const $funcs: any = {
 	$or: () => {},
 	$and: () => {},
@@ -11,8 +9,6 @@ const $funcs: any = {
 	}
 }
 
-const log = console.log
-
 const escape = (value: any) => {
 	if (typeof value === 'string') {
 		return `'${value}'`
@@ -22,16 +18,21 @@ const escape = (value: any) => {
 }
 
 export const mongoToSql = (mongo_style_query: any = {}) => {
+	if (Object.keys(mongo_style_query).length === 0) {
+		return ''
+	}
+
 	const sql_array = []
-	for (const field_name in mongo_style_query) {
+
+	   for (const field_name in mongo_style_query) {
 		const field_value = mongo_style_query[field_name]
 
 		if (field_value instanceof Object) {
 			for (const $func in $funcs) {
 				const is_fn_included = $func in field_value
+
 				is_fn_included && sql_array.push(`(${$funcs[$func](field_name, field_value[$func])})`)
 			}
-			// $funcs[field_name]()
 		} else {
 			sql_array.push(`${field_name} = ${escape(field_value)}`)
 		}
@@ -40,12 +41,3 @@ export const mongoToSql = (mongo_style_query: any = {}) => {
 
 	return sql_string
 }
-
-const query = {
-	name: 'test',
-	age: 25,
-	height: { $gt: 180 }
-}
-
-const where_clouse = mongoToSql(query)
-log(where_clouse)
