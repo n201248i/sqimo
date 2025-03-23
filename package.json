@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch index.ts",
-    "lint": "bunx eslint . --fix"
+    "lint": "bun eslint . --fix"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
@@ -18,6 +18,8 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.30"
+    "@sinclair/typebox": "^0.34.30",
+    "dom": "^0.0.3",
+    "react": "^19.0.0"
   }
 }

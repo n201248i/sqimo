@@ -31,7 +31,11 @@ export const mongoToSql = (mongo_style_query: any = {}) => {
 			for (const $func in $funcs) {
 				const is_fn_included = $func in field_value
 
-				is_fn_included && sql_array.push(`(${$funcs[$func](field_name, field_value[$func])})`)
+				if (is_fn_included) {
+					sql_array.push(`(${$funcs[$func](field_name, field_value[$func])})`)
+
+				}
+
 			}
 		} else {
 			sql_array.push(`${field_name} = ${escape(field_value)}`)
